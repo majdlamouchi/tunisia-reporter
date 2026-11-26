@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tunisia Reporter - Interactive Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: linear-gradient(135deg,#667eea,#764ba2); height: 100vh; overflow: hidden; }
+    .header { background: rgba(255,255,255,.95); backdrop-filter: blur(10px); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 15px rgba(0,0,0,.1); }
+    .logo { display: flex; align-items: center; gap: 10px; font-size: 24px; color: #667eea; font-weight: bold; }
+    .header-stats { display: flex; gap: 24px; color: #555; flex-wrap: wrap; }
+    .stat-item { display: flex; align-items: center; gap: 6px; }
+    .map-controls { position: absolute; left: 16px; top: 88px; z-index: 1000; width: 320px; }
+    .control-panel { background: rgba(255,255,255,.96); backdrop-filter: blur(10px); border-radius: 18px; padding: 18px; box-shadow: 0 10px 30px rgba(0,0,0,.15); max-height: calc(100vh - 120px); overflow: auto; }
+    .control-section { margin-bottom: 20px; }
+    .control-section h3 { font-size: 16px; margin-bottom: 10px; color: #333; display: flex; gap: 8px; align-items: center; }
+    .search-box { position: relative; }
+    .search-box input, select, input[type="date"] { width: 100%; padding: 11px 14px; border: 2px solid #e5e7eb; border-radius: 10px; font-size: 14px; }
+    .search-box button { position: absolute; right: 6px; top: 6px; border: none; background: #667eea; color: #fff; width: 34px; height: 34px; border-radius: 8px; cursor: pointer; }
+    .filter-group { display: flex; flex-wrap: wrap; gap: 8px; }
+    .filter-chip { border: 2px solid #e5e7eb; border-radius: 999px; padding: 7px 10px; cursor: pointer; font-size: 13px; }
+    .filter-chip.active { background: #667eea; color: white; border-color: #667eea; }
+    .time-range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .severity-legend { display: grid; gap: 8px; }
+    .severity-item { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+    .severity-dot { width: 12px; height: 12px; border-radius: 50%; }
+    .critical { background: #dc2626; } .high { background: #f97316; } .medium { background: #eab308; } .low { background: #22c55e; }
+    #map { width: 100%; height: calc(100vh - 72px); }
+    .weather-widget { background: #f8fafc; border-radius: 14px; padding: 12px; }
+    .floating-button, .report-button { position: absolute; right: 18px; width: 60px; height: 60px; border: none; border-radius: 50%; color: #fff; cursor: pointer; z-index: 1000; box-shadow: 0 10px 25px rgba(0,0,0,.25); }
+    .floating-button { bottom: 18px; background: linear-gradient(135deg,#667eea,#764ba2); }
+    .report-button { bottom: 90px; background: linear-gradient(135deg,#ef4444,#f59e0b); }
+    .report-popup { min-width: 280px; }
+    .popup-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .popup-type { font-weight: bold; color: #4338ca; }
+    .popup-severity { color: white; padding: 4px 9px; border-radius: 999px; text-transform: capitalize; font-size: 12px; }
+    .popup-meta, .popup-actions { margin-top: 10px; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .vote-btn { border: none; background: #eef2ff; color: #4338ca; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
+    .status { margin-top: 10px; font-size: 13px; color: #555; }
+    @media (max-width: 900px) {
+      body { overflow: auto; }
+      .header { flex-direction: column; gap: 10px; align-items: flex-start; }
+      .map-controls { position: static; width: auto; margin: 12px; }
+      #map { height: 70vh; }
+      .floating-button, .report-button { position: fixed; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo"><i class="fas fa-map-marked-alt"></i><span>Tunisia Reporter</span><span>🇹🇳</span></div>
+    <div class="header-stats">
+      <div class="stat-item"><i class="fas fa-triangle-exclamation"></i><span id="totalReports">0</span> Reports</div>
+      <div class="stat-item"><i class="fas fa-clock"></i><span id="todayReports">0</span> Today</div>
+      <div class="stat-item"><i class="fas fa-check-circle"></i><span id="resolvedReports">0</span> Resolved</div>
+      <div class="stat-item"><i class="fas fa-temperature-three-quarters"></i><span id="currentTemp">--°C</span></div>
+    </div>
+  </div>
+
+  <div class="map-controls">
+    <div class="control-panel">
+      <div class="control-section">
+        <h3><i class="fas fa-search"></i> Search Location</h3>
+        <div class="search-box">
+          <input id="locationSearch" type="text" placeholder="Search cities, addresses...">
+          <button onclick="searchLocation()"><i class="fas fa-search"></i></button>
+        </div>
+      </div>
+
+      <div class="control-section">
+        <h3><i class="fas fa-filter"></i> Problem Types</h3>
+        <div class="filter-group" id="problemFilters"></div>
+      </div>
+
+      <div class="control-section">
+        <h3><i class="fas fa-calendar"></i> Time Range</h3>
+        <select id="timeRange">
+          <option value="all">All Time</option>
+          <option value="today">Today</option>
+          <option value="week">This Week</option>
+          <option value="month">This Month</option>
+          <option value="custom">Custom Range</option>
+        </select>
+        <div class="time-range" id="customRange" style="display:none;">
+          <input type="date" id="startDate">
+          <input type="date" id="endDate">
+        </div>
+      </div>
+
+      <div class="control-section">
+        <h3><i class="fas fa-circle-info"></i> Severity</h3>
+        <div class="severity-legend">
+          <div class="severity-item"><div class="severity-dot critical"></div><span>Critical</span></div>
+          <div class="severity-item"><div class="severity-dot high"></div><span>High</span></div>
+          <div class="severity-item"><div class="severity-dot medium"></div><span>Medium</span></div>
+          <div class="severity-item"><div class="severity-dot low"></div><span>Low</span></div>
+        </div>
+      </div>
+
+      <div class="weather-widget">
+        <h3 style="margin-bottom: 8px;"><i class="fas fa-cloud-sun"></i> Demo Weather</h3>
+        <div id="weatherInfo">Sunny, 28°C</div>
+      </div>
+
+      <div class="status" id="statusMessage">Ready.</div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+  <button class="report-button" title="Report a problem" onclick="window.location.href='report.html'"><i class="fas fa-plus"></i></button>
+  <button class="floating-button" title="Get my location" onclick="getCurrentLocation()"><i class="fas fa-location-arrow"></i></button>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+  <script>
+    const API_BASE = './api/reports.php';
+    const map = L.map('map').setView([33.8869, 9.5375], 7);
+    const markersLayer = L.markerClusterGroup({ chunkedLoading: true, showCoverageOnHover: false });
+    const severityColors = { critical: '#dc2626', high: '#f97316', medium: '#eab308', low: '#22c55e' };
+    let activeFilters = new Set();
+    let problemTypes = [];
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    map.addLayer(markersLayer);
+
+    async function apiGet(url) {
+      const response = await fetch(url);
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+          if (response.status === 401) {
+              localStorage.removeItem('tr_user');
+              window.location.href = 'login.html';
+          }
+          throw new Error(data.error || 'Request failed');
+      }
+      return data;
+    }
+
+    async function apiPost(url, payload) {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+          if (response.status === 401) {
+              localStorage.removeItem('tr_user');
+              window.location.href = 'login.html';
+          }
+          throw new Error(data.error || 'Request failed');
+      }
+      return data;
+    }
+
+    function setStatus(message, isError = false) {
+      const el = document.getElementById('statusMessage');
+      el.textContent = message;
+      el.style.color = isError ? '#dc2626' : '#555';
+    }
+
+    async function loadProblemTypes() {
+      const result = await apiGet(`${API_BASE}?action=types`);
+      problemTypes = result.data;
+      const container = document.getElementById('problemFilters');
+      container.innerHTML = '';
+      problemTypes.forEach(type => {
+        activeFilters.add(type.name);
+        const chip = document.createElement('div');
+        chip.className = 'filter-chip active';
+        chip.textContent = `${type.emoji} ${type.name}`;
+        chip.addEventListener('click', () => {
+          if (activeFilters.has(type.name)) {
+            activeFilters.delete(type.name);
+            chip.classList.remove('active');
+          } else {
+            activeFilters.add(type.name);
+            chip.classList.add('active');
+          }
+          loadReports();
+        });
+        container.appendChild(chip);
+      });
+    }
+
+    function buildReportUrl() {
+      const params = new URLSearchParams({ action: 'list' });
+      if (activeFilters.size > 0) params.set('types', [...activeFilters].join(','));
+      const range = document.getElementById('timeRange').value;
+      const today = new Date();
+      let start = '';
+      let end = '';
+
+      if (range === 'today') {
+        start = end = today.toISOString().split('T')[0];
+      } else if (range === 'week') {
+        const weekAgo = new Date(today); weekAgo.setDate(today.getDate() - 7);
+        start = weekAgo.toISOString().split('T')[0];
+        end = today.toISOString().split('T')[0];
+      } else if (range === 'month') {
+        const monthAgo = new Date(today); monthAgo.setMonth(today.getMonth() - 1);
+        start = monthAgo.toISOString().split('T')[0];
+        end = today.toISOString().split('T')[0];
+      } else if (range === 'custom') {
+        start = document.getElementById('startDate').value;
+        end = document.getElementById('endDate').value;
+      }
+      if (start) params.set('start_date', start);
+      if (end) params.set('end_date', end);
+      return `${API_BASE}?${params.toString()}`;
+    }
+
+    function formatDate(dateString) {
+      const d = new Date(dateString);
+      return d.toLocaleString();
+    }
+
+    function markerRadius(severity) {
+      return { critical: 15, high: 12, medium: 10, low: 8 }[severity] || 8;
+    }
+
+    function esc(v) {
+      return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function popupHtml(report) {
+      return `
+        <div class="report-popup">
+          <div class="popup-header">
+            <div class="popup-type">${report.emoji || '📍'} ${report.problem_title || report.problem_type}</div>
+            <div class="popup-severity" style="background:${severityColors[report.severity] || '#64748b'}">${report.severity}</div>
+          </div>
+          <div><strong>Address:</strong> ${esc(report.address || 'Unknown location')}</div>
+          <div style="margin-top:8px;">${esc(report.description)}</div>
+          <div class="popup-meta">
+            <span><i class="fas fa-user"></i> ${esc(report.username || 'Anonymous')}</span>
+            <span><i class="fas fa-eye"></i> ${report.view_count}</span>
+          </div>
+          <div class="popup-actions">
+            <button class="vote-btn" onclick="voteReport(${report.id}, 'up')"><i class="fas fa-thumbs-up"></i> ${report.votes_up}</button>
+            <button class="vote-btn" onclick="voteReport(${report.id}, 'down')"><i class="fas fa-thumbs-down"></i> ${report.votes_down}</button>
+          </div>
+          <div style="margin-top:8px;font-size:12px;color:#666;">Created: ${formatDate(report.created_at)}</div>
+        </div>
+      `;
+    }
+
+    async function loadReports() {
+      try {
+        setStatus('Loading reports...');
+        const result = await apiGet(buildReportUrl());
+        const reports = result.data;
+        markersLayer.clearLayers();
+
+        reports.forEach(report => {
+          const marker = L.circleMarker([parseFloat(report.latitude), parseFloat(report.longitude)], {
+            radius: markerRadius(report.severity),
+            fillColor: severityColors[report.severity] || '#64748b',
+            color: '#fff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.85
+          });
+          marker.bindPopup(popupHtml(report));
+          marker.on('click', () => incrementViewCount(report.id));
+          markersLayer.addLayer(marker);
+        });
+
+        updateStats(reports);
+        setStatus(`Loaded ${reports.length} reports.`);
+      } catch (error) {
+        console.error(error);
+        setStatus(error.message, true);
+      }
+    }
+
+    function updateStats(reports) {
+      document.getElementById('totalReports').textContent = reports.length;
+      const todayString = new Date().toISOString().split('T')[0];
+      document.getElementById('todayReports').textContent = reports.filter(r => String(r.created_at).startsWith(todayString)).length;
+      document.getElementById('resolvedReports').textContent = reports.filter(r => r.status === 'resolved').length;
+      document.getElementById('currentTemp').textContent = '28°C';
+    }
+
+    async function incrementViewCount(reportId) {
+      try {
+        await apiGet(`${API_BASE}?action=get&id=${reportId}`);
+      } catch (error) {
+        console.error('View count failed', error);
+      }
+    }
+
+    async function voteReport(reportId, voteType) {
+      try {
+        await apiPost(`${API_BASE}?action=vote`, { report_id: reportId, vote_type: voteType });
+        await loadReports();
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function searchLocation() {
+      const q = document.getElementById('locationSearch').value.trim();
+      if (!q) return;
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q + ', Tunisia')}&limit=1`);
+        const data = await res.json();
+        if (!data.length) {
+          alert('Location not found');
+          return;
+        }
+        const place = data[0];
+        map.setView([parseFloat(place.lat), parseFloat(place.lon)], 13);
+      } catch (error) {
+        alert('Search failed');
+      }
+    }
+
+    function getCurrentLocation() {
+      if (!navigator.geolocation) {
+        alert('Geolocation not supported');
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(async position => {
+        const { latitude, longitude } = position.coords;
+        map.setView([latitude, longitude], 14);
+        try {
+          const result = await apiGet(`${API_BASE}?action=nearby&lat=${latitude}&lng=${longitude}&radius=50&limit=50`);
+          markersLayer.clearLayers();
+          result.data.forEach(report => {
+            const marker = L.circleMarker([parseFloat(report.latitude), parseFloat(report.longitude)], {
+              radius: markerRadius(report.severity),
+              fillColor: severityColors[report.severity] || '#64748b', color: '#fff', weight: 2, fillOpacity: 0.85
+            });
+            marker.bindPopup(popupHtml(report));
+            markersLayer.addLayer(marker);
+          });
+          setStatus(`Showing nearby reports within 50 km.`);
+        } catch (error) {
+          setStatus(error.message, true);
+        }
+      }, err => alert(err.message), { enableHighAccuracy: true, timeout: 10000 });
+    }
+
+    document.getElementById('locationSearch').addEventListener('keypress', e => {
+      if (e.key === 'Enter') searchLocation();
+    });
+    document.getElementById('timeRange').addEventListener('change', e => {
+      document.getElementById('customRange').style.display = e.target.value === 'custom' ? 'grid' : 'none';
+      loadReports();
+    });
+    document.getElementById('startDate').addEventListener('change', loadReports);
+    document.getElementById('endDate').addEventListener('change', loadReports);
+
+    document.getElementById('endDate').addEventListener('change', loadReports);
+
+    function checkAuth() {
+      const userStr = localStorage.getItem('tr_user');
+      if (!userStr) {
+        window.location.href = 'login.html';
+        return false;
+      }
+      try {
+        const user = JSON.parse(userStr);
+        // Add a logout button to the header
+        const headerStats = document.querySelector('.header-stats');
+        if (!document.getElementById('logoutBtn')) {
+            const logoutDiv = document.createElement('div');
+            logoutDiv.className = 'stat-item';
+            logoutDiv.innerHTML = `<button id="logoutBtn" style="border:none;background:transparent;color:#dc2626;cursor:pointer;font-weight:bold;display:flex;align-items:center;gap:4px;"><i class="fas fa-sign-out-alt"></i> Logout (${user.username})</button>`;
+            logoutDiv.querySelector('button').addEventListener('click', () => {
+                localStorage.removeItem('tr_user');
+                window.location.href = 'login.html';
+            });
+            headerStats.appendChild(logoutDiv);
+        }
+        return user;
+      } catch (e) {
+        localStorage.removeItem('tr_user');
+        window.location.href = 'login.html';
+        return false;
+      }
+    }
+
+    async function init() {
+      if (!checkAuth()) return;
+      await loadProblemTypes();
+      await loadReports();
+    }
+
+    init();
+    window.voteReport = voteReport;
+    window.searchLocation = searchLocation;
+    window.getCurrentLocation = getCurrentLocation;
+  </script>
+</body>
+</html>
